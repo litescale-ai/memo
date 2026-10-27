@@ -141,16 +141,37 @@ def test_get_recording_attachments(mock_run):
     assert attachments[0]["content_id"] == "audio/x-m4a"
 
 
-@patch("memo_helpers.recording_utils.os.path.exists", return_value=True)
 @patch("memo_helpers.recording_utils.subprocess.run")
-def test_extract_recording_audio(mock_run, mock_exists):
-    # First call returns the attachment name, second call does the save.
-    mock_run.side_effect = [
-        MagicMock(returncode=0, stdout="call_recording.m4a", stderr=""),
-        MagicMock(returncode=0, stdout="", stderr=""),
-    ]
+def test_extract_recording_audio(mock_run, tmp_path, monkeypatch):
+    import os
+    import re
+    from pathlib import Path
     from memo_helpers.recording_utils import extract_recording_audio
 
-    result = extract_recording_audio("fake-id", "/tmp/output")
-    assert result is not None
-    assert mock_run.call_count == 2
+    monkeypatch.chdir(tmp_path)
+
+    def run(args, **kwargs):
+        script = args[2]
+        if "return name of att" in script:
+            return MagicMock(returncode=0, stdout="call_recording.m4a", stderr="")
+        destination = re.search(r'save att in POSIX file "(.*)"', script).group(1)
+        assert os.path.isabs(destination), "Notes requires an absolute POSIX path"
+        with open(destination, "xb") as audio:
+            audio.write(b"recording")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    mock_run.side_effect = run
+    first = extract_recording_audio("fake-id", "./call")
+    assert first == str(tmp_path / "call")
+    second = extract_recording_audio("fake-id", "./call")
+    assert second == str(tmp_path / "call (1)")
+    assert Path(first).read_bytes() == Path(second).read_bytes() == b"recording"
+
+    directory = tmp_path / "exports"
+    directory.mkdir()
+    original = directory / "call_recording.m4a"
+    original.write_bytes(b"existing")
+    result = extract_recording_audio("fake-id", str(directory))
+    assert result == str(directory / "call_recording (1).m4a")
+    assert original.read_bytes() == b"existing"
+    assert Path(result).read_bytes() == b"recording"

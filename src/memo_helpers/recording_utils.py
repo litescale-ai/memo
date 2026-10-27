@@ -492,7 +492,8 @@ def extract_recording_audio(note_id, output_path, attachment_index=1):
 
     By default extracts the first attachment (index=1) which is typically
     the audio file.  Uses AppleScript's ``save`` command to write the
-    attachment directly to the output path.
+    attachment directly to the output path. Existing files are preserved
+    by adding a numbered suffix to the destination filename.
 
     Returns the final output file path on success, or None on error.
     """
@@ -516,13 +517,22 @@ def extract_recording_audio(note_id, output_path, attachment_index=1):
 
     att_name = name_result.stdout.strip()
 
+    # Notes requires an absolute POSIX path.
+    output_path = os.path.abspath(os.path.expanduser(output_path))
+
     # Determine final output path.
     if os.path.isdir(output_path):
         dest_path = os.path.join(output_path, att_name)
     else:
         dest_path = output_path
 
-    dest_dir = os.path.dirname(os.path.abspath(dest_path))
+    stem, extension = os.path.splitext(dest_path)
+    suffix = 1
+    while os.path.lexists(dest_path):
+        dest_path = f"{stem} ({suffix}){extension}"
+        suffix += 1
+
+    dest_dir = os.path.dirname(dest_path)
     os.makedirs(dest_dir, exist_ok=True)
 
     # Use AppleScript's save command to write the attachment to disk.
